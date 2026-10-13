@@ -1,0 +1,16 @@
+{
+  "name": "auto-model",
+  "owner": {
+    "name": "Dacoda"
+  },
+  "metadata": {
+    "description": "Claude Code plugin that picks haiku, sonnet or opus for each prompt."
+  },
+  "plugins": [
+    {
+      "name": "auto-model",
+      "source": "./",
+      "description": "Evaluates each prompt and runs the turn on the best-fit model (haiku, sonnet or opus)."
+    }
+  ]
+}
