@@ -7,6 +7,7 @@ import { cheapestTier, MODEL_IDS, tierOf, TIERS, type Tier } from './models'
 type Mode = 'auto' | 'off' | Tier
 
 const MODE_KEY = 'mode'
+const SAVINGS_KEY = 'savings'
 // Prompts this short ("yes", "go on", "fix it") follow up on the last turn:
 // they keep the last pick rather than being judged alone.
 const FOLLOW_UP_CHARS = 25
@@ -43,6 +44,9 @@ async function classify($: EngineInterface, text: string): Promise<Tier | undefi
 
 type State = {
   mode: Mode
+  // Off by default: a prompt runs on the model its difficulty calls for. On, a
+  // stronger model that is already cached may serve it when that is cheaper.
+  savings: boolean
   lastWanted?: Tier
   contextTokens: number
   // Per model id: when it last ran on the main loop and how much context it cached.
@@ -70,21 +74,22 @@ async function decide($: EngineInterface, s: State, turnId: string, sessionModel
     const cache = s.caches.get(idOf(tier))
     return cache && now - cache.at < CACHE_TTL_MS ? cache.tokens : 0
   }
-  const tier = cheapestTier(wanted, s.contextTokens || BASE_CONTEXT_TOKENS, warm)
+  const tier = s.savings ? cheapestTier(wanted, s.contextTokens || BASE_CONTEXT_TOKENS, warm) : wanted
   $.ui.status(statusText(s.mode, tier, wanted))
 
   return idOf(tier)
 }
 
 export const register: Register = on => {
-  const s: State = { mode: 'auto', contextTokens: 0, caches: new Map(), prompts: new Map(), decisions: new Map() }
+  const s: State = { mode: 'auto', savings: false, contextTokens: 0, caches: new Map(), prompts: new Map(), decisions: new Map() }
 
   on('session.start', async ($, e, next) => {
     const stored = await $.store.get(MODE_KEY)
     s.mode = isMode(stored) ? stored : 'auto'
+    s.savings = (await $.store.get(SAVINGS_KEY)) === true
     await $.command.register({
       name: 'auto-model',
-      description: 'Pick the model per prompt: on | off | haiku | sonnet | opus | status',
+      description: 'Pick the model per prompt: on | off | haiku | sonnet | opus | savings on|off | status',
     })
     $.ui.status(statusText(s.mode, undefined, undefined))
 
@@ -92,12 +97,18 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'auto-model' }, async ($, e) => {
-    const arg = e.args.trim().toLowerCase()
+    const arg = e.args.trim().toLowerCase().replace(/\s+/g, ' ')
+    if (arg === 'savings on' || arg === 'savings off') {
+      s.savings = arg === 'savings on'
+      await $.store.set(SAVINGS_KEY, s.savings)
+
+      return { text: `auto-model savings mode is ${s.savings ? 'on' : 'off'}.` }
+    }
     const wanted = arg === 'on' ? 'auto' : arg
 
     if (arg !== '' && arg !== 'status') {
       if (!isMode(wanted)) {
-        return { text: `Unknown option "${arg}". Use on, off, haiku, sonnet, opus or status.` }
+        return { text: `Unknown option "${arg}". Use on, off, haiku, sonnet, opus, savings on, savings off or status.` }
       }
       s.mode = wanted
       await $.store.set(MODE_KEY, s.mode)
@@ -111,7 +122,7 @@ export const register: Register = on => {
           ? 'off, the session model is used'
           : `pinned to ${s.mode}`
 
-    return { text: `auto-model is ${state}.` }
+    return { text: `auto-model is ${state}; savings mode is ${s.savings ? 'on' : 'off'}.` }
   })
 
   // Only keeps the text: classifying waits for the turn's first main-loop

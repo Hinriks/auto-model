@@ -73,11 +73,23 @@ test('an unparseable classifier answer leaves the session model', async ($, on) 
   expect(e.sent).toEqual([SESSION_MODEL])
 })
 
-test('with a warm Opus cache, a sonnet-level prompt stays on Opus', async ($, on) => {
+const SONNET_TASK = 'Write unit tests for the parser module in src/parse.ts'
+
+test('a sonnet-level prompt runs on sonnet, even with a warm Opus cache', async ($, on) => {
   const e = engine(on, 'opus', 150_000)
   await turn($, 't1', HARD)
   e.setAnswer('sonnet')
-  await turn($, 't2', 'Write unit tests for the parser module in src/parse.ts')
+  await turn($, 't2', SONNET_TASK)
+  expect(e.sent).toEqual([SESSION_MODEL, 'claude-sonnet-5-5'])
+})
+
+test('savings mode keeps a warm Opus session on Opus for sonnet-level work', async ($, on) => {
+  const e = engine(on, 'opus', 150_000)
+  const on1 = await $.command.run({ ...COMMAND, command: 'auto-model', args: 'savings on' })
+  expect(on1.text).toContain('savings mode is on')
+  await turn($, 't1', HARD)
+  e.setAnswer('sonnet')
+  await turn($, 't2', SONNET_TASK)
   expect(e.sent).toEqual([SESSION_MODEL, SESSION_MODEL])
 })
 
